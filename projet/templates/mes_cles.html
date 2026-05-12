@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Mes clés RSA — VaultCloud{% endblock %}
+{% block content %}
+<div class="dashboard">
+  <div class="details-header">
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← Retour</a>
+    <h2 class="dash-title">🔑 Mes clés RSA-2048</h2>
+    <p class="dash-sub">Générées dans votre navigateur à l'inscription</p>
+  </div>
+
+  <div class="key-explainer">
+    <div class="key-exp-card">
+      <div class="key-exp-icon" style="color:var(--accent)">🔓</div>
+      <div class="key-exp-title">Clé Publique</div>
+      <div class="key-exp-text">Stockée sur le serveur. Chiffre la clé AES lors d'un upload.</div>
+    </div>
+    <div class="key-exp-arrow">⇄</div>
+    <div class="key-exp-card">
+      <div class="key-exp-icon" style="color:var(--gold)">🔐</div>
+      <div class="key-exp-title">Clé Privée</div>
+      <div class="key-exp-text">Stockée chiffrée sur le serveur. Déchiffrée uniquement dans votre navigateur.</div>
+    </div>
+  </div>
+
+  <div class="crypto-grid">
+    <div class="crypto-card full-width">
+      <div class="crypto-card-header">
+        <span class="crypto-badge blue">Clé Publique RSA-2048 (SPKI base64)</span>
+        <span class="crypto-len">Sur le serveur — visible</span>
+      </div>
+      <div class="hex-block pem">{{ pub_key_b64 }}</div>
+    </div>
+    <div class="crypto-card full-width">
+      <div class="crypto-card-header">
+        <span class="crypto-badge gold">Clé Privée chiffrée (PBKDF2+AES-GCM)</span>
+        <span class="crypto-len">⚠️ Sur le serveur — mais chiffrée par votre mot de passe</span>
+      </div>
+      <p class="crypto-desc" style="color:var(--warn)">
+        ⚠️ Cette version chiffrée est stockée sur le serveur. Elle ne peut être déchiffrée
+        que par votre mot de passe, dans votre navigateur. Le serveur ne peut pas la lire.
+      </p>
+      <div class="hex-block pem">{{ priv_key_enc_b64 }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

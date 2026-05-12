@@ -1,0 +1,214 @@
+{% extends "base.html" %} {% block title %}Détails — {{ info.filename }}{%
+endblock %} {% block content %}
+<div class="dashboard">
+  <div class="details-header">
+    <a href="{{ url_for('dashboard') }}" class="btn-back">← Retour</a>
+    <h2 class="dash-title">🔍 Détails cryptographiques</h2>
+    <p class="dash-sub">
+      Fichier : <span style="color: var(--accent)">{{ info.filename }}</span>
+    </p>
+  </div>
+
+  <!-- PREUVE E2E -->
+  <div class="compare-section">
+    <h3 class="section-title">
+      <span>⚡ Preuve du chiffrement E2E</span>
+      <span class="file-count">avant / après</span>
+    </h3>
+    <div class="compare-grid">
+      <div class="compare-card encrypted-side">
+        <div class="compare-header">
+          <span class="compare-badge red">🔒 Ce que le serveur stocke</span>
+          <span class="compare-sub">Illisible même pour le serveur</span>
+        </div>
+        <div class="compare-label">Premiers octets (hexadécimal) :</div>
+        <div class="hex-block compare-content">
+          {{ info.encrypted_preview }}
+        </div>
+        <div class="compare-footer red-text">
+          ✖ Illisible sans la clé privée RSA
+        </div>
+      </div>
+
+      <div class="compare-arrow-col">
+        <div class="compare-arrow-box">
+          <div class="arrow-icon">🔑</div>
+          <div class="arrow-line">↔</div>
+          <div class="arrow-label">
+            Clé privée<br />RSA-2048<br />(navigateur)
+          </div>
+        </div>
+      </div>
+
+      <div class="compare-card decrypted-side">
+        <div class="compare-header">
+          <span class="compare-badge green">✅ Après déchiffrement client</span>
+          <span class="compare-sub">Déchiffré dans votre navigateur</span>
+        </div>
+        <div class="compare-label">Contenu original :</div>
+        <div
+          class="hex-block compare-content decrypted-content"
+          id="dec-content"
+        >
+          <span class="loading-text"
+            >Cliquez pour déchiffrer localement...</span
+          >
+        </div>
+        <div id="dec-footer">
+          <button
+            class="btn-primary btn-decrypt"
+            id="btn-decrypt"
+            onclick="decryptAndShow({{ info.id }})"
+          >
+            🔓 Déchiffrer dans le navigateur
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Données cryptographiques réelles -->
+  <div class="crypto-grid">
+    <div class="crypto-card">
+      <div class="crypto-card-header">
+        <span class="crypto-badge blue">IV / Nonce</span>
+        <span class="crypto-len">{{ info.iv_len }} octets</span>
+      </div>
+      <p class="crypto-desc">
+        Généré aléatoirement dans le navigateur. Unique pour ce fichier.
+      </p>
+    </div>
+    <div class="crypto-card">
+      <div class="crypto-card-header">
+        <span class="crypto-badge green">Tag GCM</span>
+        <span class="crypto-len">{{ info.tag_len }} octets</span>
+      </div>
+      <p class="crypto-desc">
+        Authentification AES-GCM. Si le fichier est modifié → erreur.
+      </p>
+    </div>
+    <div class="crypto-card full-width">
+      <div class="crypto-card-header">
+        <span class="crypto-badge gold">Clé AES-256 chiffrée par RSA-2048</span>
+        <span class="crypto-len">{{ info.enc_aes_key_len }} octets</span>
+      </div>
+      <p class="crypto-desc">
+        La clé AES a été chiffrée <strong>dans le navigateur</strong> avec
+        RSA-OAEP.
+      </p>
+    </div>
+    <div class="crypto-card full-width">
+      <div class="crypto-card-header">
+        <span class="crypto-badge purple"
+          >Clé publique RSA-2048 (SPKI base64)</span
+        >
+      </div>
+      <p class="crypto-desc">
+        Seule cette clé est sur le serveur. La clé privée reste dans votre
+        navigateur.
+      </p>
+    </div>
+  </div>
+
+  <!-- Métadonnées -->
+  <div class="meta-table-wrap">
+    <h3 class="section-title"><span>Métadonnées</span></h3>
+    <table class="files-table">
+      <tr>
+        <th>Fichier</th>
+        <td>{{ info.filename }}</td>
+      </tr>
+      <tr>
+        <th>Taille originale</th>
+        <td>{{ info.size_plain }} octets</td>
+      </tr>
+      <tr>
+        <th>Taille chiffrée</th>
+        <td>{{ info.size_stored }} octets</td>
+      </tr>
+      <tr>
+        <th>Date upload</th>
+        <td>{{ info.created_at }}</td>
+      </tr>
+      <tr>
+        <th>Chiffrement fichier</th>
+        <td>AES-256-GCM (côté client)</td>
+      </tr>
+      <tr>
+        <th>Chiffrement clé</th>
+        <td>RSA-OAEP / SHA-256 (côté client)</td>
+      </tr>
+      <tr>
+        <th>Chemin serveur</th>
+        <td>
+          <code
+            style="
+              font-family: &quot;Share Tech Mono&quot;, monospace;
+              color: var(--text-mono);
+              font-size: 0.8rem;
+            "
+            >{{ info.stored_path }}</code
+          >
+        </td>
+      </tr>
+    </table>
+  </div>
+</div>
+{% endblock %} {% block scripts %}
+<script>
+  async function decryptAndShow(fileId) {
+    await ensurePrivateKey(async () => {
+      const btn = document.getElementById("btn-decrypt");
+      const box = document.getElementById("dec-content");
+      const foot = document.getElementById("dec-footer");
+
+      btn.disabled = true;
+      btn.innerHTML = "⏳ Déchiffrement RSA + AES-GCM...";
+      box.innerHTML =
+        '<span class="loading-text">Déchiffrement en cours...</span>';
+
+      try {
+        // 1. Récupérer données chiffrées du serveur
+        const res = await fetch(`/api/download/${fileId}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        // 2. Déchiffrer DANS LE NAVIGATEUR
+        const decrypted = await VaultCrypto.decryptFile(
+          data.ciphertext,
+          data.enc_aes_key,
+          data.iv,
+          data.tag,
+          window._vault.privateKey,
+        );
+
+        // 3. Afficher selon le type
+        const bytes = new Uint8Array(decrypted);
+        const ext = data.filename.split(".").pop().toLowerCase();
+        const imgExts = ["png", "jpg", "jpeg", "gif", "bmp", "webp"];
+
+        foot.innerHTML =
+          '<span style="color:var(--success);font-weight:700">✔ Déchiffrement réussi dans le navigateur !</span>';
+
+        if (imgExts.includes(ext)) {
+          const blob = new Blob([decrypted]);
+          const url = URL.createObjectURL(blob);
+          box.style.padding = "0";
+          box.style.background = "transparent";
+          box.style.border = "none";
+          box.innerHTML = `<img src="${url}" style="max-width:100%;max-height:280px;border-radius:8px;border:2px solid var(--success)"/>`;
+        } else {
+          const text = new TextDecoder().decode(decrypted);
+          box.style.color = "var(--success)";
+          box.style.fontSize = "1rem";
+          box.textContent = text;
+        }
+      } catch (err) {
+        box.innerHTML = `<span style="color:var(--danger)">Erreur : ${err.message}</span>`;
+        btn.disabled = false;
+        btn.innerHTML = "🔓 Réessayer";
+      }
+    });
+  }
+</script>
+{% endblock %}

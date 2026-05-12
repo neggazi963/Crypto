@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — VaultCloud E2E{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+
+  <div class="dash-header">
+    <div>
+      <h2 class="dash-title">Mon Espace Chiffré</h2>
+      <p class="dash-sub">Chiffrement E2E — le serveur ne voit jamais vos fichiers en clair</p>
+      
+    </div>
+    <div class="quota-card">
+      <div class="quota-label">QUOTA UTILISÉ</div>
+      <div class="quota-values">{{ used }} / {{ quota }}</div>
+      <div class="quota-bar-wrap">
+        <div class="quota-bar" style="width:{{ percent }}%" data-pct="{{ percent }}"></div>
+      </div>
+      <div class="quota-pct">{{ percent }}%</div>
+    </div>
+  </div>
+
+  <!-- Upload -->
+  <div class="upload-section">
+    <div class="drop-zone" id="drop-zone">
+      <div class="drop-icon">↑</div>
+      <p class="drop-text">Glissez un fichier ici ou
+        <label for="file-input" class="drop-link">parcourir</label>
+      </p>
+      <p class="drop-hint">Le fichier sera chiffré RSA+AES dans votre navigateur avant envoi</p>
+      <input type="file" id="file-input" hidden/>
+      <div id="selected-file" hidden>
+        <span id="file-name"></span>
+        <button class="btn-primary btn-upload" id="btn-upload" onclick="uploadFile()">
+          🔒 Chiffrer &amp; Uploader →
+        </button>
+      </div>
+      <div id="upload-progress" hidden>
+        <div class="progress-steps">
+          <div class="pstep" id="up-1">1. Lecture du fichier</div>
+          <div class="pstep" id="up-2">2. Chiffrement AES-256-GCM</div>
+          <div class="pstep" id="up-3">3. Chiffrement clé AES par RSA</div>
+          <div class="pstep" id="up-4">4. Envoi au serveur</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fichiers -->
+  <div class="files-section">
+    <h3 class="section-title">
+      <span>Fichiers stockés</span>
+      <span class="file-count">{{ files|length }} fichier{% if files|length != 1 %}s{% endif %}</span>
+    </h3>
+
+    {% if files %}
+    <div class="table-wrap">
+      <table class="files-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Nom du fichier</th><th>Taille</th>
+            <th>Date d'upload</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in files %}
+          <tr class="file-row">
+            <td class="file-id">{{ f.id }}</td>
+            <td class="file-name"><span class="file-icon">⬡</span>{{ f.name }}</td>
+            <td class="file-size">{{ f.size }}</td>
+            <td class="file-date">{{ f.date }}</td>
+            <td class="file-actions">
+              <a href="{{ url_for('details', file_id=f.id) }}" class="btn-action btn-info">🔍 Détails</a>
+              <button class="btn-action btn-dl" onclick="downloadFile({{ f.id }}, '{{ f.name }}')">
+                ↓ Télécharger
+              </button>
+              <button class="btn-action btn-del"
+                      onclick="deleteFile({{ f.id }}, this)">✕ Supprimer</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">⬡</div>
+      <p>Aucun fichier. Uploadez votre premier fichier ci-dessus.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Info cards -->
+  <div class="info-cards">
+    <div class="info-card">
+      <div class="info-card-icon">🌐</div>
+      <div class="info-card-title">Chiffrement E2E</div>
+      <div class="info-card-text">Le fichier est chiffré dans votre navigateur avant d'arriver au serveur.</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-icon">🔑</div>
+      <div class="info-card-title">Clé privée locale</div>
+      <div class="info-card-text">Votre clé privée RSA ne quitte jamais votre navigateur en clair.</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-icon">🛡</div>
+      <div class="info-card-title">Serveur aveugle</div>
+      <div class="info-card-text">Le serveur ne stocke que des données chiffrées illisibles.</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Drag & drop ─────────────────────────────
+const zone   = document.getElementById('drop-zone');
+const input  = document.getElementById('file-input');
+const selDiv = document.getElementById('selected-file');
+const nameEl = document.getElementById('file-name');
+let   selectedFile = null;
+
+function showFile(file) {
+  selectedFile = file;
+  nameEl.textContent = file.name;
+  selDiv.hidden = false;
+  zone.classList.add('has-file');
+}
+
+input.addEventListener('change', () => { if(input.files[0]) showFile(input.files[0]); });
+zone.addEventListener('click', (e) => { if(!e.target.classList.contains('drop-link') && !e.target.id.includes('btn')) input.click(); });
+zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  if(e.dataTransfer.files[0]) showFile(e.dataTransfer.files[0]);
+});
+
+// ── Upload E2E ───────────────────────────────
+async function uploadFile() {
+  if (!selectedFile) return;
+  await ensurePrivateKey(async () => {
+    const btn      = document.getElementById('btn-upload');
+    const progDiv  = document.getElementById('upload-progress');
+    const pstep    = (n, done=false) => {
+      const el = document.getElementById(`up-${n}`);
+      el.classList.toggle('pstep-active', !done);
+      el.classList.toggle('pstep-done', done);
+    };
+
+    btn.style.display = 'none';
+    progDiv.hidden    = false;
+
+    try {
+      // Étape 1 : lire le fichier
+      pstep(1);
+      const fileBuffer = await selectedFile.arrayBuffer();
+      pstep(1, true);
+
+      // Récupérer la clé publique depuis le serveur (pour chiffrer la clé AES)
+      const pubKeyB64 = await fetch('/mes-cles').then(r => r.text()).then(html => {
+        // On récupère directement via API
+        return null; // on utilise la session
+      });
+
+      // En réalité on récupère la clé publique du serveur
+      const pkRes = await fetch('/api/my-public-key');
+      const pkData = await pkRes.json();
+      const publicKey = await VaultCrypto.importPublicKey(pkData.pub_key_b64);
+
+      // Étape 2 : chiffrement AES-256-GCM
+      pstep(2);
+      const { encryptedBlob, enc_aes_key, iv, tag } =
+            await VaultCrypto.encryptFile(fileBuffer, publicKey);
+      pstep(2, true);
+
+      // Étape 3 : clé AES chiffrée par RSA (déjà fait dans encryptFile)
+      pstep(3, true);
+
+      // Étape 4 : envoi au serveur
+      pstep(4);
+      const fd = new FormData();
+      fd.append('encrypted_file', encryptedBlob, selectedFile.name + '.bin');
+      fd.append('enc_aes_key', enc_aes_key);
+      fd.append('iv',          iv);
+      fd.append('tag',         tag);
+      fd.append('filename',    selectedFile.name);
+      fd.append('size_plain',  selectedFile.size);
+
+      const res  = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      pstep(4, true);
+
+      showFlash(`✅ « ${selectedFile.name} » chiffré et uploadé !`);
+      setTimeout(() => location.reload(), 1200);
+
+    } catch(err) {
+      showFlash('Erreur : ' + err.message, 'error');
+      btn.style.display = '';
+      progDiv.hidden    = true;
+    }
+  });
+}
+
+// ── Download E2E ─────────────────────────────
+async function downloadFile(fileId, filename) {
+  await ensurePrivateKey(async () => {
+    try {
+      showFlash('⏳ Récupération + déchiffrement RSA+AES...');
+
+      // 1. Récupérer les données chiffrées du serveur
+      const res  = await fetch(`/api/download/${fileId}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      // 2. Déchiffrer dans le navigateur avec la clé privée RSA
+      const decrypted = await VaultCrypto.decryptFile(
+        data.ciphertext,
+        data.enc_aes_key,
+        data.iv,
+        data.tag,
+        window._vault.privateKey
+      );
+
+      // 3. Déclencher le téléchargement
+      const blob = new Blob([decrypted]);
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showFlash(`✅ « ${data.filename} » déchiffré et téléchargé !`);
+    } catch(err) {
+      showFlash('Erreur déchiffrement : ' + err.message, 'error');
+    }
+  });
+}
+
+// ── Supprimer ────────────────────────────────
+async function deleteFile(fileId, btn) {
+  if (!confirm('Supprimer ce fichier ?')) return;
+  try {
+    const res  = await fetch(`/api/delete/${fileId}`, { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    btn.closest('tr').remove();
+    showFlash('Fichier supprimé.');
+  } catch(err) {
+    showFlash('Erreur : ' + err.message, 'error');
+  }
+}
+
+// ── Quota bar ────────────────────────────────
+const bar = document.querySelector('.quota-bar');
+if (bar) {
+  const pct = parseFloat(bar.dataset.pct);
+  if (pct > 80) bar.classList.add('quota-danger');
+  else if (pct > 50) bar.classList.add('quota-warn');
+}
+</script>
+{% endblock %}

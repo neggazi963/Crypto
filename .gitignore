@@ -1,0 +1,62 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environnements virtuels
+venv/
+env/
+ENV/
+.venv/
+
+# Variables d'environnement
+.env
+
+# Flask
+instance/
+.webassets-cache
+
+# Logs
+*.log
+
+# Base de données SQLite
+*.sqlite3
+*.db
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Fichiers temporaires
+*.tmp
+*.swp
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Tests / couverture
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# mypy
+.mypy_cache/
+
+# Render / déploiement
+render.yaml
+
+# Secrets / clés
+*.pem
+*.key
+secret.*

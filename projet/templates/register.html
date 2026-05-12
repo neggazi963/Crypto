@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Inscription — VaultCloud E2E{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="hex-icon">⬡</div>
+      <h1 class="auth-title">VaultCloud</h1>
+      <p class="auth-subtitle">Création de compte — Génération des clés RSA</p>
+    </div>
+
+    <!-- Barre de progression -->
+    <div id="reg-progress" style="display:none">
+      <div class="progress-steps">
+        <div class="pstep" id="pstep-1">1. Génération clés RSA-2048</div>
+        <div class="pstep" id="pstep-2">2. Chiffrement clé privée</div>
+        <div class="pstep" id="pstep-3">3. Envoi au serveur</div>
+        <div class="pstep" id="pstep-4">4. Compte créé ✅</div>
+      </div>
+    </div>
+
+    <form id="reg-form" class="auth-form">
+      <div class="form-group">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" placeholder="votre_identifiant" required/>
+      </div>
+      <div class="form-group">
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" placeholder="••••••••" required/>
+        <span class="input-hint">Ce mot de passe protège votre clé privée RSA</span>
+      </div>
+      <div class="form-group">
+        <label for="quota">Quota (MB)</label>
+        <input type="number" id="quota" value="5" min="1" max="1000" required/>
+      </div>
+      <button type="submit" class="btn-primary btn-full" id="reg-btn">
+        <span>Générer les clés &amp; Créer le compte</span>
+        <span class="btn-arrow">→</span>
+      </button>
+    </form>
+    <p id="reg-error" style="color:var(--danger);text-align:center;font-size:.9rem;margin-top:.8rem"></p>
+
+    <p class="auth-switch">
+      Déjà un compte ? <a href="{{ url_for('login') }}">Se connecter</a>
+    </p>
+  </div>
+
+  <div class="auth-deco">
+    <div class="deco-grid"></div>
+    <div class="deco-lines">
+      <div class="dline"></div><div class="dline"></div>
+      <div class="dline"></div><div class="dline"></div>
+    </div>
+    <div class="deco-text">
+      <p class="deco-tag">À L'INSCRIPTION</p>
+      <p class="deco-algo">CLÉS RSA</p>
+      <p class="deco-algo">GÉNÉRÉES</p>
+      <p class="deco-algo">ICI</p>
+      <p class="deco-tag">JAMAIS SUR LE SERVEUR</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('reg-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const quota    = parseInt(document.getElementById('quota').value);
+  const btn      = document.getElementById('reg-btn');
+  const errEl    = document.getElementById('reg-error');
+  const progress = document.getElementById('reg-progress');
+
+  errEl.textContent = '';
+  btn.disabled = true;
+  progress.style.display = 'block';
+
+  const step = (n, done=false) => {
+    const el = document.getElementById(`pstep-${n}`);
+    el.classList.add(done ? 'pstep-done' : 'pstep-active');
+  };
+
+  try {
+    // ÉTAPE 1 — Générer la paire de clés RSA-2048 dans le navigateur
+    step(1);
+    btn.innerHTML = '<span>⏳ Génération RSA-2048...</span>';
+    const keyPair = await VaultCrypto.generateKeyPair();
+    step(1, true);
+
+    // ÉTAPE 2 — Chiffrer la clé privée avec le mot de passe (PBKDF2 + AES-GCM)
+    step(2);
+    btn.innerHTML = '<span>⏳ Chiffrement clé privée...</span>';
+    const pub_key_b64  = await VaultCrypto.exportPublicKeyB64(keyPair.publicKey);
+    const priv_key_enc = await VaultCrypto.encryptPrivateKey(keyPair.privateKey, password);
+    step(2, true);
+
+    // ÉTAPE 3 — Envoyer au serveur (clé privée = chiffrée, jamais en clair)
+    step(3);
+    btn.innerHTML = '<span>⏳ Envoi au serveur...</span>';
+    const res  = await fetch('/api/register', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username, password, quota, pub_key_b64, priv_key_enc })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    step(3, true);
+
+    // ÉTAPE 4 — Succès
+    step(4, true);
+    btn.innerHTML = '<span>✅ Compte créé ! Redirection...</span>';
+    setTimeout(() => { window.location.href = '/login'; }, 1200);
+
+  } catch(err) {
+    errEl.textContent = err.message;
+    btn.disabled = false;
+    btn.innerHTML = '<span>Générer les clés &amp; Créer le compte</span><span class="btn-arrow">→</span>';
+  }
+});
+</script>
+{% endblock %}

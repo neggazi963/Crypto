@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}VaultCloud E2E{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <!-- Bibliothèque crypto E2E — chargée AVANT tout autre script -->
+  <script src="{{ url_for('static', filename='vault_crypto.js') }}"></script>
+</head>
+<body>
+  {% if session.username %}
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="lock-icon">⬡</span>
+      <span class="brand-name">VaultCloud</span>
+      <span class="e2e-badge">E2E</span>
+    </div>
+    <div class="nav-user">
+      <span class="nav-username">{{ session.username }}</span>
+      <a href="{{ url_for('logout') }}" class="btn-logout">Déconnexion</a>
+    </div>
+  </nav>
+  {% endif %}
+
+  <div id="flash-container" class="flash-container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">
+          <span class="flash-icon">{% if cat == 'success' %}✔{% else %}✖{% endif %}</span>
+          {{ msg }}
+        </div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
+  <!-- Modal re-saisie mot de passe (si clé perdue après refresh) -->
+  <div id="key-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <div class="modal-icon">🔑</div>
+      <h3>Session expirée</h3>
+      <p>Re-saisissez votre mot de passe pour déchiffrer votre clé privée RSA.</p>
+      <input type="password" id="modal-password" placeholder="Mot de passe"
+             class="modal-input"/>
+      <div class="modal-actions">
+        <button class="btn-primary" onclick="restoreKeyFromModal()">
+          <span>Déverrouiller</span>
+        </button>
+      </div>
+      <div id="modal-error" style="color:var(--danger);font-size:.85rem;margin-top:.5rem"></div>
+    </div>
+  </div>
+
+  <main>{% block content %}{% endblock %}</main>
+
+  <script>
+    // Auto-dismiss flash messages
+    setTimeout(() => {
+      document.querySelectorAll('.flash').forEach(el => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 400);
+      });
+    }, 4000);
+
+    function showFlash(msg, type='success') {
+      const el = document.createElement('div');
+      el.className = `flash flash-${type}`;
+      el.innerHTML = `<span class="flash-icon">${type==='success'?'✔':'✖'}</span> ${msg}`;
+      document.getElementById('flash-container').appendChild(el);
+      setTimeout(() => { el.style.opacity='0'; setTimeout(()=>el.remove(),400); }, 4000);
+    }
+
+    // Restaurer la clé depuis le modal
+    async function restoreKeyFromModal() {
+      const pwd = document.getElementById('modal-password').value;
+      const errEl = document.getElementById('modal-error');
+      errEl.textContent = '';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            username: window._vault.username || '{{ session.username }}',
+            password: pwd
+          })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        window._vault.privateKey = await VaultCrypto.decryptPrivateKey(data.priv_key_enc, pwd);
+        window._vault.username   = data.username || '{{ session.username }}';
+        document.getElementById('key-modal').style.display = 'none';
+        if (window._pendingAction) { window._pendingAction(); window._pendingAction = null; }
+      } catch(e) {
+        errEl.textContent = 'Mot de passe incorrect.';
+      }
+    }
+
+    // Assure que la clé privée est disponible, sinon ouvre le modal
+    async function ensurePrivateKey(action) {
+      if (window._vault.privateKey) { action(); return; }
+      window._pendingAction = action;
+      document.getElementById('key-modal').style.display = 'flex';
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Connexion — VaultCloud E2E{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="hex-icon">⬡</div>
+      <h1 class="auth-title">VaultCloud</h1>
+      <p class="auth-subtitle">Chiffrement E2E · Clé privée dans votre navigateur</p>
+    </div>
+
+    <div id="login-status" style="display:none" class="status-box">
+      <span id="login-status-text">⏳ Déchiffrement de votre clé RSA...</span>
+    </div>
+
+    <form id="login-form" class="auth-form">
+      <div class="form-group">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" placeholder="votre_identifiant" required/>
+      </div>
+      <div class="form-group">
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required/>
+      </div>
+      <button type="submit" class="btn-primary btn-full" id="login-btn">
+        <span>Connexion</span>
+        <span class="btn-arrow">→</span>
+      </button>
+    </form>
+    <p id="login-error" style="color:var(--danger);text-align:center;font-size:.9rem;margin-top:.8rem"></p>
+
+    <p class="auth-switch">
+      Pas encore de compte ?
+      <a href="{{ url_for('register') }}">Créer un compte</a>
+    </p>
+  </div>
+
+  <div class="auth-deco">
+    <div class="deco-grid"></div>
+    <div class="deco-lines">
+      <div class="dline"></div><div class="dline"></div>
+      <div class="dline"></div><div class="dline"></div>
+    </div>
+    <div class="deco-text">
+      <p class="deco-tag">CHIFFREMENT E2E</p>
+      <p class="deco-algo">RSA-2048</p>
+      <p class="deco-algo">AES-256-GCM</p>
+      <p class="deco-tag">CLÉ PRIVÉE = NAVIGATEUR</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const btn      = document.getElementById('login-btn');
+  const errEl    = document.getElementById('login-error');
+  const statusEl = document.getElementById('login-status');
+  const statusTx = document.getElementById('login-status-text');
+
+  errEl.textContent = '';
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳ Connexion...</span>';
+
+  try {
+    // 1. Envoyer identifiants au serveur → récupérer clé privée chiffrée
+    const res  = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Identifiants incorrects');
+
+    // 2. Déchiffrer la clé privée RSA dans le navigateur avec le mot de passe
+    statusEl.style.display = 'block';
+    statusTx.textContent   = '🔑 Déchiffrement de votre clé privée RSA (PBKDF2 + AES-GCM)...';
+
+    const privateKey = await VaultCrypto.decryptPrivateKey(data.priv_key_enc, password);
+
+    // 3. Stocker la clé déchiffrée en mémoire (jamais sur le serveur)
+    window._vault.privateKey = privateKey;
+    window._vault.username   = username;
+
+    statusTx.textContent = '✅ Clé RSA déchiffrée — redirection...';
+
+    // 4. Rediriger vers le dashboard
+    setTimeout(() => { window.location.href = '/dashboard'; }, 600);
+
+  } catch(err) {
+    errEl.textContent = err.message;
+    btn.disabled = false;
+    btn.innerHTML = '<span>Connexion</span><span class="btn-arrow">→</span>';
+    statusEl.style.display = 'none';
+  }
+});
+</script>
+{% endblock %}
